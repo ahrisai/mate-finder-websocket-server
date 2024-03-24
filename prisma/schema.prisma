@@ -1,0 +1,91 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int           @id @default(autoincrement())
+  nickname     String
+  email        String
+  password     String
+  gender       String
+  user_avatar  String?
+  description  String?
+  birthday     String
+  age Int
+  valorant_data Valorant_Data? 
+  cs2_data     Cs2_data?
+  teams         Team[]
+}
+
+model Valorant_Data {
+  id           Int    @id @default(autoincrement())
+  user         User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       Int    @unique
+  
+}
+
+
+model Team {
+  id     Int   @id @default(autoincrement())
+  user   User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId Int @unique 
+  
+}
+
+
+model Cs2_data {
+  id           Int    @id @default(autoincrement())
+  user         User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       Int    @unique
+  
+  steamId      String
+  matches      Int
+  winrate      Float
+  kd           Float
+  wins         Int
+  hs           Float
+  lvlImg       String
+  elo          Int
+  roles        Cs2_dataCs2Roles[] 
+  maps         Cs2_dataCs2Maps[]
+}
+
+model Cs2Roles {
+  id   Int    @id @default(autoincrement())
+  name String @unique
+  roles        Cs2_dataCs2Roles[]
+}
+
+model Cs2Maps {
+  id   Int    @id @default(autoincrement())
+  name String @unique
+  maps        Cs2_dataCs2Maps []
+  
+}
+
+model Cs2_dataCs2Roles {
+ 
+  cs2_data    Cs2_data @relation(fields: [cs2_dataId], references: [id],onDelete: Cascade)
+  cs2_dataId  Int
+  cs2Role      Cs2Roles    @relation(fields: [cs2RoleId], references: [id])
+  cs2RoleId    Int
+  @@id([cs2_dataId, cs2RoleId])
+}
+
+model Cs2_dataCs2Maps {
+  cs2_data    Cs2_data @relation(fields: [cs2_dataId], references: [id], onDelete: Cascade)
+  cs2_dataId  Int
+  cs2Map Cs2Maps @relation(fields: [cs2MapId], references: [id])
+  cs2MapId Int
+
+  @@id([cs2_dataId, cs2MapId])
+
+}
