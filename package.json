@@ -29,7 +29,7 @@
     "passport-steam": "^1.0.18",
     "pg": "^8.11.3",
     "prisma": "^5.7.1",
-    "socket.io": "^4.7.5",
+    "socket.io": "4.7.1",
     "ws": "^8.16.0"
   },
   "devDependencies": {
