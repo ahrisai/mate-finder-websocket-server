@@ -1,9 +1,13 @@
-import { Message } from './Message';
-import Player from './Player';
-import Team from './Team';
+import { Message } from './Message.js';
 
+export interface ChatUser {
+  id: number;
+  nickname: string;
+  avatar: string;
+}
 export interface Chat {
-  id: string;
+  team: boolean;
+  roomId: string;
   messages: Message[];
-  partner: Player | Team;
+  members: ChatUser[];
 }

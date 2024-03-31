@@ -24,66 +24,68 @@ const messages = [];
 io.on('connection', (socket) => {
   console.log('новый сокет подключен');
   socket.emit('connection');
+
+  socket.on('joinRooms', (rooms: Chat[]) => {
+    rooms.forEach((room) => {
+      socket.join(room.roomId);
+    });
+  });
+
   socket.on('join', (room) => {
     socket.join(room);
   });
 
-  socket.on('firstMessage', async ({ chat, partner, userId }) => {
-    socket.join(chat.id);
-    const partnerChat = await prisma.chat.create({
+  socket.on('firstMessage', async (chat: Chat) => {
+    socket.join(chat.roomId);
+
+    // Создаем запись в таблице Chat для userId
+    await prisma.chat.create({
       data: {
-        roomId: chat.id,
-        user: {
-          connect: {
-            id: partner.id,
-          },
-        },
-        messages: { create: { ...chat.messages[0], chatId: undefined } },
+        roomId: chat.roomId,
+        members: { connect: chat.members.map((member) => ({ id: member.id })) },
       },
     });
 
-    // Создаем запись в таблице Chat для userId
-    const userChat = await prisma.chat.create({
-      data: {
-        roomId: chat.id,
-        user: {
-          connect: {
-            id: userId,
-          },
-        },
-      },
-    });
-    io.sockets.emit('firstMessage', { chat: { ...chat, partner }, playerId: (chat.partner as Player).id });
-    io.in(chat.id).emit('getMessage', chat.messages[0]);
+    await prisma.message.createMany({ data: chat.messages });
+    const newChat = await prisma.chat.findFirst({ where: { roomId: chat.roomId }, include: { messages: true, members: true } });
+    if (newChat) {
+      io.sockets.emit('firstMessage', {
+        chat: newChat,
+        playerId: newChat.members.find((member) => member.nickname !== chat.members[1].nickname)?.id,
+      });
+      io.in(chat.roomId).emit('getMessage', newChat.messages[0]);
+    }
   });
 
   socket.on('sendMessage', async (message: Message) => {
-    const chat = await prisma.chat.findFirst({
-      where: {
-        roomId: message.chatId,
-      },
-      select: {
-        id: true,
-      },
-    });
-    if (chat) {
-      const chatId = chat.id;
-      const newMessage = await prisma.message.create({
-        data: {
-          text: message.text,
-          time: message.time,
-          checked: message.checked,
-          nickname: message.nickname,
-          chatId: chatId,
-        },
-      });
-
-      io.in(message.chatId).emit('getMessage', message);
+    const room = io.sockets.adapter.rooms.get(message.roomId);
+    if (room) {
+      const isSocketInRoom = room.has(socket.id);
+      if (!isSocketInRoom) {
+        socket.join(message.roomId);
+      }
     }
+
+    await prisma.message.create({ data: message });
+    const newMessage = await prisma.message.findFirst({
+      where: { nickname: message.nickname, roomId: message.roomId, time: message.time },
+    });
+    io.in(message.roomId).emit('getMessage', newMessage);
   });
-  socket.on('getChats', async (userId: number) => {
-    const chats = await prisma.chat.findMany({ where: { userId: userId }, include: { messages: true } });
-    socket.emit('getChats', chats);
+  socket.on('readMessage', async (message: Message) => {
+    await prisma.message.update({ where: { id: message.id }, data: { checked: true } });
+    socket.emit('readMessage', { ...message, checked: true });
+  });
+  socket.on('checkWholeChat', async (messages: Message[]) => {
+    const roomId = messages[0].roomId;
+    const nickname = messages[0].nickname;
+
+    await prisma.message.updateMany({
+      where: { id: { in: messages.map((message) => message.id) } },
+      data: { checked: true },
+    });
+    const checkedMessages = await prisma.message.findMany({ where: { roomId: roomId, nickname: nickname } });
+    socket.emit('checkWholeChat', checkedMessages);
   });
 
   socket.on('leftRoom', ({ params }) => {});

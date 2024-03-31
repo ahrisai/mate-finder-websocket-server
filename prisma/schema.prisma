@@ -22,8 +22,8 @@ model User {
   age Int
   valorant_data Valorant_Data? 
   cs2_data     Cs2_data?
-  chats Chat[]
   teams         Team[]
+  chats Chat[]
 }
 
 model Valorant_Data {
@@ -91,23 +91,20 @@ model Cs2_dataCs2Maps {
 
 }
 
+
 model Message {
   id       Int    @id @default(autoincrement())
   text     String
   time     String
   checked  Boolean
   nickname String
-  chat     Chat   @relation(fields: [chatId], references: [id])
-  chatId   Int
+  chat     Chat   @relation(fields: [roomId], references: [roomId], onDelete: Cascade)
+  roomId   String
 }
 
 model Chat {
   id       Int       @id @default(autoincrement())
-  roomId   String    
+  roomId   String    @unique
   messages Message[]
-  user     User      @relation(fields: [userId], references: [id])
-  userId   Int
+  members User[]
 }
-
-
-
