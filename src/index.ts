@@ -18,9 +18,6 @@ const io = new Server(8080, {
   },
 });
 
-const chatRooms = new Map();
-const messages = [];
-
 io.on('connection', (socket) => {
   console.log('новый сокет подключен');
   socket.emit('connection');
@@ -53,7 +50,7 @@ io.on('connection', (socket) => {
         chat: newChat,
         playerId: newChat.members.find((member) => member.nickname !== chat.members[1].nickname)?.id,
       });
-      io.in(chat.roomId).emit('getMessage', newChat.messages[0]);
+      socket.emit('getMessage', newChat.messages[0]);
     }
   });
 
@@ -72,10 +69,13 @@ io.on('connection', (socket) => {
     });
     io.in(message.roomId).emit('getMessage', newMessage);
   });
+
   socket.on('readMessage', async (message: Message) => {
     await prisma.message.update({ where: { id: message.id }, data: { checked: true } });
     socket.emit('readMessage', { ...message, checked: true });
+    socket.broadcast.to(message.roomId).emit('readMessage', { ...message, checked: true });
   });
+
   socket.on('checkWholeChat', async (messages: Message[]) => {
     const roomId = messages[0].roomId;
     const nickname = messages[0].nickname;
@@ -86,9 +86,11 @@ io.on('connection', (socket) => {
     });
     const checkedMessages = await prisma.message.findMany({ where: { roomId: roomId, nickname: nickname } });
     socket.emit('checkWholeChat', checkedMessages);
+
+    socket.broadcast.to(roomId).emit('checkWholeChat', checkedMessages);
   });
 
-  socket.on('leftRoom', ({ params }) => {});
+  socket.on('leftRooms', () => {});
 
   io.on('disconnect', () => {
     console.log('Disconnect');
