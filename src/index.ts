@@ -1,15 +1,8 @@
 import { Server } from 'socket.io';
-import jwt from 'jsonwebtoken';
-import { JwtUser } from './queryTypes.js';
-import { secretKey } from './config.js';
-import { compareSync } from 'bcrypt';
-import { addUser } from './users.js';
 import { Message } from './types/Message.js';
 import { Chat } from './types/Chat.js';
-import Player from './types/Player.js';
 import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
-// import { addUser, findUser, getRoomUsers, removeUser } from './users.js';
 
 const io = new Server(8080, {
   cors: {
@@ -35,7 +28,6 @@ io.on('connection', (socket) => {
   socket.on('firstMessage', async (chat: Chat) => {
     socket.join(chat.roomId);
 
-    // Создаем запись в таблице Chat для userId
     await prisma.chat.create({
       data: {
         roomId: chat.roomId,
@@ -88,6 +80,85 @@ io.on('connection', (socket) => {
     socket.emit('checkWholeChat', checkedMessages);
 
     socket.broadcast.to(roomId).emit('checkWholeChat', checkedMessages);
+  });
+
+  socket.on('friendRequest', async ({ fromUserId, toUserId }) => {
+    try {
+      const response = await prisma.friendRequest.create({
+        data: {
+          fromUserId,
+          toUserId,
+        },
+      });
+      const friendRequest = await prisma.friendRequest.findFirst({
+        where: {
+          fromUserId,
+          toUserId,
+        },
+        include: {
+          fromUser: true,
+          toUser: true,
+        },
+      });
+      socket.emit('friendRequest', friendRequest);
+      io.emit('friendRequestToUser', friendRequest);
+    } catch (error) {
+      console.log(error);
+    }
+  });
+
+  socket.on('friendRequestAction', async ({ accept, requestId }) => {
+    if (accept) {
+      try {
+        const friendRequest = await prisma.friendRequest.findFirst({ where: { id: requestId } });
+        if (friendRequest) {
+          const fromUser = await prisma.user.findUnique({ where: { id: friendRequest.fromUserId } });
+          const toUser = await prisma.user.findUnique({ where: { id: friendRequest.toUserId } });
+
+          if (fromUser && toUser) {
+            await prisma.user.update({
+              where: { id: friendRequest.fromUserId },
+              data: {
+                friends: {
+                  connect: { id: friendRequest.toUserId },
+                },
+              },
+            });
+
+            await prisma.user.update({
+              where: { id: friendRequest.toUserId },
+              data: {
+                friends: {
+                  connect: { id: friendRequest.fromUserId },
+                },
+              },
+            });
+
+            await prisma.friendRequest.delete({
+              where: { id: requestId },
+            });
+            const userFriend = await prisma.user.findFirst({ where: { id: friendRequest.fromUserId }, include: { cs2_data: true } });
+
+            socket.emit('friendRequestAction', { req: friendRequest, friend: { ...userFriend, password: undefined, email: undefined } });
+            io.emit('friendRequestActionToUser', { req: friendRequest, friend: { ...userFriend, password: undefined, email: undefined } });
+          }
+        }
+      } catch (error) {
+        console.log(error);
+      }
+    } else {
+      try {
+        const friendRequest = await prisma.friendRequest.findFirst({ where: { id: requestId } });
+
+        await prisma.friendRequest.delete({
+          where: { id: requestId },
+        });
+        socket.emit('friendRequestAction', { req: friendRequest });
+        io.emit('friendRequestActionToUser', { req: friendRequest });
+      } catch (error) {
+        console.log(error);
+      }
+    }
   });
 
   socket.on('leftRooms', () => {});
