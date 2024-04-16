@@ -137,10 +137,17 @@ io.on('connection', (socket) => {
             await prisma.friendRequest.delete({
               where: { id: requestId },
             });
-            const userFriend = await prisma.user.findFirst({ where: { id: friendRequest.fromUserId }, include: { cs2_data: true } });
+            const userFriend1 = await prisma.user.findFirst({
+              where: { id: friendRequest.fromUserId },
+              include: { cs2_data: { select: { elo: true, kd: true, lvlImg: true } } },
+            });
+            const userFriend2 = await prisma.user.findFirst({
+              where: { id: friendRequest.toUserId },
+              include: { cs2_data: { select: { elo: true, kd: true, lvlImg: true } } },
+            });
 
-            socket.emit('friendRequestAction', { req: friendRequest, friend: { ...userFriend, password: undefined, email: undefined } });
-            io.emit('friendRequestActionToUser', { req: friendRequest, friend: { ...userFriend, password: undefined, email: undefined } });
+            socket.emit('friendRequestAction', { req: friendRequest, friend: { ...userFriend1, password: undefined, email: undefined } });
+            io.emit('friendRequestActionToUser', { req: friendRequest, friend: { ...userFriend2, password: undefined, email: undefined } });
           }
         }
       } catch (error) {
