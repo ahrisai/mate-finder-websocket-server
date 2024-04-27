@@ -22,13 +22,15 @@ datasource db {
     age Int
     valorant_data Valorant_Data? 
     cs2_data     Cs2_data?
-    teams         Team[]
-    chats Chat[]
     
+     teams         Team[] 
+    chats Chat[]
+    memberOf MemberShip[]
    sentRequests      FriendRequest[] @relation("FriendRequestsSent")
   receivedRequests  FriendRequest[] @relation("FriendRequestsReceived")
     friends         User[] @relation("friends")
   friendsRelation User[] @relation("friends")
+  requestsToTeam TeamRequest[]
   }
 
 model FriendRequest {
@@ -52,7 +54,34 @@ model Team {
   id     Int   @id @default(autoincrement())
   user   User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId Int @unique 
-  
+  name String
+  description String?
+  public Boolean
+  avatar String
+  teamRequests TeamRequest[]
+  neededRoles Cs2Roles[]
+  ownerRole String
+members MemberShip[]
+}
+
+
+model MemberShip {
+  id     Int   @id @default(autoincrement())
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  teamId Int 
+  user User @relation(fields: [toUserId], references: [id], onDelete: Cascade)
+  toUserId   Int
+  role Cs2Roles @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  roleId Int 
+}
+model TeamRequest{
+  id     Int   @id @default(autoincrement())
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  teamId Int 
+  user User @relation(fields: [toUserId], references: [id], onDelete: Cascade)
+  toUserId   Int
+  role Cs2Roles @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  roleId Int 
 }
 
 
@@ -77,6 +106,9 @@ model Cs2Roles {
   id   Int    @id @default(autoincrement())
   name String @unique
   roles        Cs2_dataCs2Roles[]
+  neededTeamRole Team[]
+  teamRequest TeamRequest[]
+  memberRole MemberShip[]
 }
 
 model Cs2Maps {

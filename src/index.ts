@@ -2,6 +2,7 @@ import { Server } from 'socket.io';
 import { Message } from './types/Message.js';
 import { Chat } from './types/Chat.js';
 import { PrismaClient } from '@prisma/client';
+import { TeamRequest } from './types/TeamRequest.js';
 const prisma = new PrismaClient();
 
 const io = new Server(8080, {
@@ -10,10 +11,63 @@ const io = new Server(8080, {
     origin: 'http://localhost:5173',
   },
 });
-
+io.setMaxListeners(30);
 io.on('connection', (socket) => {
   console.log('новый сокет подключен');
-  socket.emit('connection');
+
+  socket.on('connected', (userId: number) => {
+    socket.join(`TI-${userId}`);
+  });
+
+  socket.on('teamRequestToUser', async (teamInvite: TeamRequest) => {
+    const roomId = `TI-${teamInvite.toUserId}`;
+
+    socket.join(roomId);
+    const req = await prisma.teamRequest.create({
+      data: { roleId: teamInvite.roleId as number, teamId: teamInvite.teamId as number, toUserId: teamInvite.toUserId },
+      include: { team: true },
+    });
+    io.to(roomId).emit('newTeamRequest', req);
+  });
+
+  socket.on('teamRequestToFriends', (teamInvites: TeamRequest[]) => {
+    teamInvites.forEach((req) => {
+      socket.join(`TI-${req.toUserId}`);
+      socket.broadcast.to(`TI-${req.toUserId}`).emit('teamRequestToFriends', req);
+    });
+  });
+
+  socket.on('answerTeamRequest', async (req: { accept: boolean; req: TeamRequest }) => {
+    if (req.accept) {
+      const newMember = await prisma.memberShip.create({
+        data: { roleId: req.req.roleId, toUserId: req.req.toUserId, teamId: req.req.teamId as number },
+        include: {
+          role: true,
+          user: true,
+          team: true,
+        },
+      });
+
+      await prisma.team.update({
+        where: { id: req.req.teamId },
+        data: {
+          teamRequests: { delete: { id: req.req.id } },
+        },
+      });
+      socket.emit('answerTeamRequest', { req: newMember, accept: true });
+      socket.broadcast.to(`TI-${newMember.toUserId}`).emit('answerTeamRequest', { req: newMember, accept: true });
+    } else {
+      await prisma.team.update({
+        where: { id: req.req.teamId },
+        data: {
+          teamRequests: { delete: { id: req.req.id } },
+        },
+      });
+      socket.emit('answerTeamRequest', { req: req, accept: false });
+
+      socket.broadcast.to(`TI-${req.req.toUserId}`).emit('answerTeamRequest', { req: req, accept: false });
+    }
+  });
 
   socket.on('joinRooms', (rooms: Chat[]) => {
     rooms.forEach((room) => {
