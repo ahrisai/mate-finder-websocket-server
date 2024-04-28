@@ -63,9 +63,9 @@ io.on('connection', (socket) => {
           teamRequests: { delete: { id: req.req.id } },
         },
       });
-      socket.emit('answerTeamRequest', { req: req, accept: false });
+      socket.emit('answerTeamRequest', req);
 
-      socket.broadcast.to(`TI-${req.req.toUserId}`).emit('answerTeamRequest', { req: req, accept: false });
+      socket.broadcast.to(`TI-${req.req.toUserId}`).emit('answerTeamRequest', req);
     }
   });
 
