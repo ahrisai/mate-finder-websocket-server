@@ -25,9 +25,9 @@ io.on('connection', (socket) => {
     socket.join(roomId);
     const req = await prisma.teamRequest.create({
       data: { roleId: teamInvite.roleId as number, teamId: teamInvite.teamId as number, toUserId: teamInvite.toUserId },
-      include: { team: true },
+      include: { team: true, role: true },
     });
-    io.to(roomId).emit('newTeamRequest', req);
+    io.to(roomId).emit('teamRequest', req);
   });
 
   socket.on('teamRequestToFriends', (teamInvites: TeamRequest[]) => {
