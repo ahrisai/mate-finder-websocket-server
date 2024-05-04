@@ -1,7 +1,7 @@
 import { Server } from 'socket.io';
 import { Message } from './types/Message.js';
 import { Chat } from './types/Chat.js';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Team } from '@prisma/client';
 import { TeamRequest } from './types/TeamRequest.js';
 const prisma = new PrismaClient();
 
@@ -52,6 +52,7 @@ io.on('connection', (socket) => {
         where: { id: req.req.teamId },
         data: {
           teamRequests: { delete: { id: req.req.id } },
+          neededRoles: { disconnect: { id: req.req.roleId } },
         },
       });
       socket.emit('answerTeamRequest', { req: newMember, accept: true });
@@ -67,6 +68,14 @@ io.on('connection', (socket) => {
 
       socket.broadcast.to(`TI-${req.req.toUserId}`).emit('answerTeamRequest', req);
     }
+  });
+
+  socket.on('cancelTeamRequest', async (req: TeamRequest) => {
+    const removedReq = await prisma.teamRequest.delete({ where: { id: req.id } });
+
+    socket.emit('cancelTeamRequest', req);
+
+    socket.broadcast.to(`TI-${req.toUserId}`).emit('cancelTeamRequest', req);
   });
 
   socket.on('joinRooms', (rooms: Chat[]) => {
