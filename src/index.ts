@@ -44,7 +44,7 @@ io.on('connection', (socket) => {
         include: {
           role: true,
           user: true,
-          team: true,
+          team: { include: { chat: { include: { members: true, messages: true, team: true } } } },
         },
       });
 
@@ -53,6 +53,7 @@ io.on('connection', (socket) => {
         data: {
           teamRequests: { delete: { id: req.req.id } },
           neededRoles: { disconnect: { id: req.req.roleId } },
+          chat: { update: { members: { connect: { id: req.req.toUserId } } } },
         },
       });
       socket.emit('answerTeamRequest', { req: newMember, accept: true });
@@ -62,6 +63,7 @@ io.on('connection', (socket) => {
         where: { id: req.req.teamId },
         data: {
           teamRequests: { delete: { id: req.req.id } },
+          neededRoles: { connect: { id: req.req.roleId } },
         },
       });
       socket.emit('answerTeamRequest', req);
