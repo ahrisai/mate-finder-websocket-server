@@ -44,7 +44,9 @@ io.on('connection', (socket) => {
         include: {
           role: true,
           user: true,
-          team: { include: { chat: { include: { members: true, messages: true, team: true } } } },
+          team: {
+            include: { chat: { include: { members: true, messages: true, team: true } }, members: { include: { role: true, user: true } } },
+          },
         },
       });
 
