@@ -101,9 +101,25 @@ io.on('connection', (socket) => {
         members: { connect: chat.members.map((member) => ({ id: member.id })) },
       },
     });
-
-    await prisma.message.createMany({ data: chat.messages });
-    const newChat = await prisma.chat.findFirst({ where: { roomId: chat.roomId }, include: { messages: true, members: true } });
+    const newMessage = chat.messages[0];
+    const otherMembers = chat.members.filter((member) => member.id !== newMessage.userId);
+    await prisma.message.create({
+      data: {
+        text: newMessage.text,
+        time: newMessage.time,
+        roomId: newMessage.roomId,
+        userId: newMessage.userId,
+        checked: {
+          createMany: {
+            data: otherMembers.map((member) => ({ isChecked: false, userId: member.id })),
+          },
+        },
+      },
+    });
+    const newChat = await prisma.chat.findFirst({
+      where: { roomId: chat.roomId },
+      include: { messages: { include: { checked: true, user: true } }, members: true },
+    });
     if (newChat) {
       io.sockets.emit('firstMessage', {
         chat: newChat,
@@ -122,41 +138,62 @@ io.on('connection', (socket) => {
       }
     }
 
-    await prisma.message.create({ data: message });
-    const newMessage = await prisma.message.findFirst({
-      where: { nickname: message.nickname, roomId: message.roomId, time: message.time },
+    const newMessage = await prisma.message.create({
+      data: {
+        text: message.text,
+        time: message.time,
+        roomId: message.roomId,
+        checked: {
+          createMany: { data: message.checked.map((checked) => ({ isChecked: false, userId: checked.userId })) },
+        },
+        userId: message.userId,
+      },
+      include: {
+        user: { select: { id: true, user_avatar: true, nickname: true } },
+        checked: { include: { user: { select: { id: true, nickname: true } } } },
+      },
     });
     io.in(message.roomId).emit('getMessage', newMessage);
   });
 
-  socket.on('readMessage', async (message: Message) => {
-    await prisma.message.update({ where: { id: message.id }, data: { checked: true } });
-    socket.emit('readMessage', { ...message, checked: true });
-    socket.broadcast.to(message.roomId).emit('readMessage', { ...message, checked: true });
+  socket.on('readMessage', async ({ message, userId }: { message: Message; userId: number }) => {
+    console.log(message);
+    const checkedId = message.checked.find((checked) => checked.userId === userId)?.id;
+    const checkedMessage = await prisma.message.update({
+      where: { id: message.id },
+      data: { checked: { update: { where: { id: checkedId }, data: { isChecked: true } } } },
+      include: {
+        user: { select: { id: true, user_avatar: true, nickname: true } },
+        checked: { include: { user: { select: { id: true, nickname: true } } } },
+      },
+    });
+    socket.emit('readMessage', checkedMessage);
+    socket.broadcast.to(message.roomId).emit('readMessage', checkedMessage);
   });
 
-  socket.on('checkWholeChat', async (messages: Message[]) => {
+  socket.on('checkWholeChat', async ({ messages, userId, userIds }: { messages: Message[]; userId: number; userIds: number[] }) => {
     const roomId = messages[0].roomId;
-    const nickname = messages[0].nickname;
 
-    await prisma.message.updateMany({
-      where: { id: { in: messages.map((message) => message.id) } },
-      data: { checked: true },
+    const allCheckedMessages = messages.map((message) => message.checked).flat();
+
+    await prisma.checkedBy.updateMany({
+      where: { id: { in: allCheckedMessages.map((checkedMessage) => checkedMessage.id as number) }, AND: { userId } },
+      data: { isChecked: true },
     });
-    const checkedMessages = await prisma.message.findMany({ where: { roomId: roomId, nickname: nickname } });
-    socket.emit('checkWholeChat', checkedMessages);
 
+    const checkedMessages = await prisma.message.findMany({
+      where: { roomId: roomId, userId: { in: userIds } },
+      include: {
+        user: { select: { id: true, user_avatar: true, nickname: true } },
+        checked: { include: { user: { select: { id: true, nickname: true } } } },
+      },
+    });
+    socket.emit('checkWholeChat', checkedMessages);
     socket.broadcast.to(roomId).emit('checkWholeChat', checkedMessages);
   });
 
   socket.on('friendRequest', async ({ fromUserId, toUserId }) => {
     try {
-      const response = await prisma.friendRequest.create({
-        data: {
-          fromUserId,
-          toUserId,
-        },
-      });
       const friendRequest = await prisma.friendRequest.findFirst({
         where: {
           fromUserId,
