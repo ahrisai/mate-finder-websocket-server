@@ -194,8 +194,8 @@ io.on('connection', (socket) => {
 
   socket.on('friendRequest', async ({ fromUserId, toUserId }) => {
     try {
-      const friendRequest = await prisma.friendRequest.findFirst({
-        where: {
+      const friendRequest = await prisma.friendRequest.create({
+        data: {
           fromUserId,
           toUserId,
         },
