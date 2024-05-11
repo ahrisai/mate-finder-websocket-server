@@ -8,4 +8,5 @@ export interface TeamRequest {
   toUserId: number;
   user?: ClientUser;
   roleId: number;
+  isFromTeam: boolean;
 }

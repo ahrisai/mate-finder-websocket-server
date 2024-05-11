@@ -1,3 +1,4 @@
+import { Chat } from './Chat.js';
 import ClientUser from './ClientUser.js';
 import Cs2Role from './Cs2Role.js';
 import Player from './Player.js';
@@ -16,4 +17,5 @@ export default interface Team {
   neededRoles: Cs2Role[];
   teamRequests: TeamRequest[];
   members: Player[];
+  chat: Chat;
 }

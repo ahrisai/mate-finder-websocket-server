@@ -1,7 +1,8 @@
 import { Server } from 'socket.io';
 import { Message } from './types/Message.js';
 import { Chat } from './types/Chat.js';
-import { PrismaClient, Team } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
+import Team from './types/Team.js';
 import { TeamRequest } from './types/TeamRequest.js';
 const prisma = new PrismaClient();
 
@@ -17,14 +18,20 @@ io.on('connection', (socket) => {
 
   socket.on('connected', (userId: number) => {
     socket.join(`TI-${userId}`);
+    socket.join(`${userId}`);
   });
 
-  socket.on('teamRequestToUser', async (teamInvite: TeamRequest) => {
+  socket.on('teamRequest', async (teamInvite: TeamRequest) => {
     const roomId = `TI-${teamInvite.toUserId}`;
 
     socket.join(roomId);
     const req = await prisma.teamRequest.create({
-      data: { roleId: teamInvite.roleId as number, teamId: teamInvite.teamId as number, toUserId: teamInvite.toUserId },
+      data: {
+        roleId: teamInvite.roleId as number,
+        teamId: teamInvite.teamId as number,
+        toUserId: teamInvite.toUserId,
+        isFromTeam: teamInvite.isFromTeam,
+      },
       include: { team: true, role: true },
     });
     io.to(roomId).emit('teamRequest', req);
@@ -75,11 +82,44 @@ io.on('connection', (socket) => {
   });
 
   socket.on('cancelTeamRequest', async (req: TeamRequest) => {
-    const removedReq = await prisma.teamRequest.delete({ where: { id: req.id } });
+    await prisma.teamRequest.delete({ where: { id: req.id } });
 
     socket.emit('cancelTeamRequest', req);
 
     socket.broadcast.to(`TI-${req.toUserId}`).emit('cancelTeamRequest', req);
+  });
+
+  socket.on('leaveTeam', async ({ team, userId, byOwner }: { team: Team; userId: number; byOwner: boolean }) => {
+    const membership = await prisma.memberShip.findFirst({ where: { teamId: team.id, toUserId: userId } });
+    if (membership) {
+      await prisma.team.update({
+        where: { id: team.id },
+        data: {
+          members: {
+            delete: {
+              id: membership.id,
+            },
+          },
+        },
+      });
+
+      await prisma.chat.update({
+        where: { id: team.chat.id },
+        data: {
+          members: {
+            disconnect: {
+              id: userId,
+            },
+          },
+        },
+      });
+      socket.emit('leaveTeam', { team, userId, byOwner });
+      if (byOwner) {
+        socket.broadcast.to(`${userId}`).emit('leaveTeam', { team, userId: userId, byOwner });
+      } else {
+        socket.broadcast.to(`${team.userId}`).emit('leaveTeam', { team, userId: userId, byOwner });
+      }
+    }
   });
 
   socket.on('joinRooms', (rooms: Chat[]) => {

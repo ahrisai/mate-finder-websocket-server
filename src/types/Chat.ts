@@ -6,6 +6,7 @@ export interface ChatUser {
   avatar: string;
 }
 export interface Chat {
+  id?: number;
   team: boolean;
   roomId: string;
   messages: Message[];
