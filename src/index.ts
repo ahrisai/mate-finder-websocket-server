@@ -15,8 +15,9 @@ const io = new Server(8080, {
 io.setMaxListeners(30);
 io.on('connection', (socket) => {
   console.log('новый сокет подключен');
-
+  socket.emit('connection');
   socket.on('connected', (userId: number) => {
+    console.log(userId);
     socket.join(`TI-${userId}`);
     socket.join(`${userId}`);
   });
@@ -24,7 +25,6 @@ io.on('connection', (socket) => {
   socket.on('teamRequest', async (teamInvite: TeamRequest) => {
     const roomId = `TI-${teamInvite.toUserId}`;
 
-    socket.join(roomId);
     const req = await prisma.teamRequest.create({
       data: {
         roleId: teamInvite.roleId as number,
@@ -32,9 +32,19 @@ io.on('connection', (socket) => {
         toUserId: teamInvite.toUserId,
         isFromTeam: teamInvite.isFromTeam,
       },
-      include: { team: true, role: true },
+      include: {
+        team: true,
+        role: true,
+        user: { select: { nickname: true, user_avatar: true, id: true, cs2_data: { select: { lvlImg: true } } } },
+      },
     });
-    io.to(roomId).emit('teamRequest', req);
+    if (teamInvite.isFromTeam) {
+      socket.join(roomId);
+      io.to(roomId).emit('teamRequest', req);
+    } else {
+      socket.emit('teamRequest', req);
+      io.to(req.team.userId.toString()).emit('teamRequest', req);
+    }
   });
 
   socket.on('teamRequestToFriends', (teamInvites: TeamRequest[]) => {
@@ -46,23 +56,25 @@ io.on('connection', (socket) => {
 
   socket.on('answerTeamRequest', async (req: { accept: boolean; req: TeamRequest }) => {
     if (req.accept) {
-      const newMember = await prisma.memberShip.create({
-        data: { roleId: req.req.roleId, toUserId: req.req.toUserId, teamId: req.req.teamId as number },
-        include: {
-          role: true,
-          user: true,
-          team: {
-            include: { chat: { include: { members: true, messages: true, team: true } }, members: { include: { role: true, user: true } } },
-          },
-        },
-      });
-
       await prisma.team.update({
         where: { id: req.req.teamId },
         data: {
           teamRequests: { delete: { id: req.req.id } },
           neededRoles: { disconnect: { id: req.req.roleId } },
           chat: { update: { members: { connect: { id: req.req.toUserId } } } },
+        },
+      });
+      const newMember = await prisma.memberShip.create({
+        data: { roleId: req.req.roleId, toUserId: req.req.toUserId, teamId: req.req.teamId as number },
+        include: {
+          role: true,
+          user: true,
+          team: {
+            include: {
+              chat: { include: { members: true, messages: { include: { checked: true } }, team: true } },
+              members: { include: { role: true, user: true } },
+            },
+          },
         },
       });
       socket.emit('answerTeamRequest', { req: newMember, accept: true });
@@ -82,11 +94,14 @@ io.on('connection', (socket) => {
   });
 
   socket.on('cancelTeamRequest', async (req: TeamRequest) => {
-    await prisma.teamRequest.delete({ where: { id: req.id } });
+    const deletedReq = await prisma.teamRequest.delete({ where: { id: req.id }, include: { team: true, role: true } });
 
-    socket.emit('cancelTeamRequest', req);
-
-    socket.broadcast.to(`TI-${req.toUserId}`).emit('cancelTeamRequest', req);
+    socket.emit('cancelTeamRequest', deletedReq);
+    if (deletedReq.isFromTeam) {
+      socket.broadcast.to(`TI-${req.toUserId}`).emit('cancelTeamRequest', req);
+    } else {
+      socket.broadcast.to(`${req.team?.userId}`).emit('cancelTeamRequest', req);
+    }
   });
 
   socket.on('leaveTeam', async ({ team, userId, byOwner }: { team: Team; userId: number; byOwner: boolean }) => {
@@ -98,6 +113,11 @@ io.on('connection', (socket) => {
           members: {
             delete: {
               id: membership.id,
+            },
+          },
+          neededRoles: {
+            connect: {
+              id: membership.roleId,
             },
           },
         },
@@ -114,6 +134,7 @@ io.on('connection', (socket) => {
         },
       });
       socket.emit('leaveTeam', { team, userId, byOwner });
+      console.log('@@@@@@@@@@@@@@');
       if (byOwner) {
         socket.broadcast.to(`${userId}`).emit('leaveTeam', { team, userId: userId, byOwner });
       } else {
@@ -313,6 +334,16 @@ io.on('connection', (socket) => {
   });
 
   socket.on('leftRooms', () => {});
+  socket.on('disconnect', () => {
+    console.log('Клиент отключился');
+  });
+
+  socket.on('leaveAllRooms', function () {
+    for (var room in socket.rooms) {
+      socket.leave(room);
+    }
+    console.log('Вышел');
+  });
 
   io.on('disconnect', () => {
     console.log('Disconnect');
