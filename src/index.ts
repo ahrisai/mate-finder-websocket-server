@@ -134,7 +134,6 @@ io.on('connection', (socket) => {
         },
       });
       socket.emit('leaveTeam', { team, userId, byOwner });
-      console.log('@@@@@@@@@@@@@@');
       if (byOwner) {
         socket.broadcast.to(`${userId}`).emit('leaveTeam', { team, userId: userId, byOwner });
       } else {
