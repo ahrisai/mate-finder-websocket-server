@@ -1,7 +1,7 @@
 import { Server } from 'socket.io';
 import { Message } from './types/Message.js';
 import { Chat } from './types/Chat.js';
-import { PrismaClient } from '@prisma/client';
+import { MemberShip, PrismaClient } from '@prisma/client';
 import Team from './types/Team.js';
 import { TeamRequest } from './types/TeamRequest.js';
 const prisma = new PrismaClient();
@@ -9,7 +9,7 @@ const prisma = new PrismaClient();
 const io = new Server(8080, {
   cors: {
     credentials: true,
-    origin: 'http://localhost:5173',
+    origin: true,
   },
 });
 io.setMaxListeners(30);
@@ -43,18 +43,26 @@ io.on('connection', (socket) => {
       io.to(roomId).emit('teamRequest', req);
     } else {
       socket.emit('teamRequest', req);
+
       io.to(req.team.userId.toString()).emit('teamRequest', req);
     }
   });
 
   socket.on('teamRequestToFriends', (teamInvites: TeamRequest[]) => {
     teamInvites.forEach((req) => {
-      socket.join(`TI-${req.toUserId}`);
-      socket.broadcast.to(`TI-${req.toUserId}`).emit('teamRequestToFriends', req);
+      socket.join(`${req.toUserId}`);
+      io.to(`${req.toUserId}`).emit('teamRequest', req);
     });
   });
 
   socket.on('answerTeamRequest', async (req: { accept: boolean; req: TeamRequest }) => {
+    const member = await prisma.memberShip.findFirst({ where: { teamId: req.req.teamId, roleId: req.req.roleId } });
+    if (member) {
+      await prisma.teamRequest.delete({ where: { id: req.req.id } });
+      socket.emit('answerTeamRequest', { req: req.req, unvalid: true });
+      return;
+    }
+
     if (req.accept) {
       await prisma.team.update({
         where: { id: req.req.teamId },
@@ -64,6 +72,7 @@ io.on('connection', (socket) => {
           chat: { update: { members: { connect: { id: req.req.toUserId } } } },
         },
       });
+      await prisma.teamRequest.deleteMany({ where: { teamId: req.req.teamId, roleId: req.req.roleId } });
       const newMember = await prisma.memberShip.create({
         data: { roleId: req.req.roleId, toUserId: req.req.toUserId, teamId: req.req.teamId as number },
         include: {
@@ -71,12 +80,13 @@ io.on('connection', (socket) => {
           user: true,
           team: {
             include: {
-              chat: { include: { members: true, messages: { include: { checked: true } }, team: true } },
+              chat: { include: { members: true, messages: { include: { checked: true, user: true } }, team: true } },
               members: { include: { role: true, user: true } },
             },
           },
         },
       });
+      socket.join(newMember.team.name);
       socket.emit('answerTeamRequest', { req: newMember, accept: true });
       socket.broadcast.to(`TI-${newMember.toUserId}`).emit('answerTeamRequest', { req: newMember, accept: true });
     } else {
@@ -107,7 +117,7 @@ io.on('connection', (socket) => {
   socket.on('leaveTeam', async ({ team, userId, byOwner }: { team: Team; userId: number; byOwner: boolean }) => {
     const membership = await prisma.memberShip.findFirst({ where: { teamId: team.id, toUserId: userId } });
     if (membership) {
-      await prisma.team.update({
+      const newTeam = await prisma.team.update({
         where: { id: team.id },
         data: {
           members: {
@@ -121,10 +131,11 @@ io.on('connection', (socket) => {
             },
           },
         },
+        include: { chat: { select: { id: true } } },
       });
 
       await prisma.chat.update({
-        where: { id: team.chat.id },
+        where: { id: newTeam.chat?.id },
         data: {
           members: {
             disconnect: {
@@ -271,6 +282,30 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('cancelFriendRequest', async (reqId: number) => {
+    const req = await prisma.friendRequest.delete({ where: { id: reqId }, select: { toUserId: true, id: true, fromUserId: true } });
+    socket.emit('cancelFriendRequest', req);
+    socket.broadcast.to(req.toUserId.toString()).emit('cancelFriendRequest', req);
+  });
+
+  socket.on('deleteFromFriends', async ({ myId, friendId }) => {
+    await prisma.user.update({
+      where: { id: myId },
+      data: {
+        friends: { disconnect: { id: friendId } },
+      },
+    });
+    await prisma.user.update({
+      where: { id: friendId },
+      data: {
+        friends: { disconnect: { id: myId } },
+      },
+    });
+
+    socket.emit('deleteFromFriends', friendId);
+    io.emit('deleteFromFriends', myId);
+  });
+
   socket.on('friendRequestAction', async ({ accept, requestId }) => {
     if (accept) {
       try {
@@ -332,7 +367,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('leftRooms', () => {});
   socket.on('disconnect', () => {
     console.log('Клиент отключился');
   });
